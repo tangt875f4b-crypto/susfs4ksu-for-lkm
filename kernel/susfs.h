@@ -162,10 +162,8 @@ void susfs_set_priority_uid_filter_supercall(void __user **arg);
  * may see hidden sus_paths. */
 bool susfs_is_uid_allowed_for_sus_path(uid_t uid);
 /* Upstream fs/susfs.c: true when the (mod-100000) UID is in the priority
- * bitmap, i.e. hidden from getpriority/setpriority probes.  NOTE: the
- * getpriority hook that consumes this predicate is not in this LKM yet, so
- * today this only answers the setter / feature advertisement; see
- * susfs_uid_filter.c. */
+ * bitmap, i.e. hidden from getpriority/setpriority probes.  Consumed by the
+ * getpriority/setpriority hook in susfs_priority_hook.c. */
 bool susfs_is_priority_uid_filtered(uid_t uid);
 void susfs_parse_sus_path_app_strings(void);
 void susfs_parse_priority_app_strings(void);

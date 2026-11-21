@@ -13,10 +13,10 @@
  *       code, not the comment.
  *   CMD_SUSFS_SET_PRIORITY_UID_FILTER 0x60030 - the listed UIDs are hidden from
  *       getpriority/setpriority probes.  The setter and bitmap live here; the
- *       getpriority hook that consumes susfs_is_priority_uid_filtered() is NOT
- *       in this LKM yet (there is no such hook in the LKM at all), so until that
- *       hook lands the priority filter is recognised and accepted by FinaSU
- *       but does not actually hide anything.  Do not claim otherwise.
+ *       hook that consumes susfs_is_priority_uid_filtered() is
+ *       susfs_priority_hook.c, which patches both syscalls' table entries
+ *       (native + compat) through susfs_fp_hook - the LKM cannot patch
+ *       kernel/sys.c the way upstream does.
  *
  * LKM differences from upstream (all deliberate, all documented where they
  * bite):
@@ -59,6 +59,7 @@
 #include "susfs_abi.h"
 #include "susfs.h"
 #include "susfs_log.h"
+#include "susfs_priority_hook.h"
 
 #define SUSFS_PACKAGES_LIST_PATH "/data/system/packages.list"
 #define SUSFS_PACKAGES_LIST_MAX_SIZE (4 * 1024 * 1024)
@@ -267,45 +268,48 @@ static struct timespec64 susfs_uid_filter_get_mtime(struct inode *inode)
 #endif
 }
 
-/* Snapshot packages.list's mtime/size, for the delayed re-check. */
-static void susfs_uid_filter_note_mtime(struct susfs_uid_filter *f)
+/* Open packages.list and snapshot its mtime + size; false when it cannot be
+ * opened.  The two callers below differ only in what they do with the
+ * snapshot, so the open/read/close lives here once. */
+static bool susfs_uid_filter_stat_list(struct timespec64 *mtime, loff_t *size)
 {
 	struct file *fp = filp_open(SUSFS_PACKAGES_LIST_PATH,
 				     O_RDONLY | O_NOATIME, 0);
-	struct timespec64 mtime;
 
 	if (IS_ERR(fp))
+		return false;
+	*mtime = susfs_uid_filter_get_mtime(file_inode(fp));
+	*size = i_size_read(file_inode(fp));
+	fput(fp);
+	return true;
+}
+
+/* Snapshot packages.list's mtime/size, for the delayed re-check. */
+static void susfs_uid_filter_note_mtime(struct susfs_uid_filter *f)
+{
+	struct timespec64 mtime;
+	loff_t size;
+
+	if (!susfs_uid_filter_stat_list(&mtime, &size))
 		return;
-	mtime = susfs_uid_filter_get_mtime(file_inode(fp));
 	f->last_mtime_sec = mtime.tv_sec;
 	f->last_mtime_nsec = mtime.tv_nsec;
-	f->last_size = i_size_read(file_inode(fp));
+	f->last_size = size;
 	f->have_mtime = true;
-	fput(fp);
 }
 
 static bool susfs_uid_filter_mtime_changed(struct susfs_uid_filter *f)
 {
-	struct file *fp;
 	struct timespec64 mtime;
-	time64_t sec;
-	long nsec;
 	loff_t size;
-	bool changed = false;
 
 	if (!f->have_mtime)
 		return true;
-	fp = filp_open(SUSFS_PACKAGES_LIST_PATH, O_RDONLY | O_NOATIME, 0);
-	if (IS_ERR(fp))
+	if (!susfs_uid_filter_stat_list(&mtime, &size))
 		return false;
-	mtime = susfs_uid_filter_get_mtime(file_inode(fp));
-	sec = mtime.tv_sec;
-	nsec = mtime.tv_nsec;
-	size = i_size_read(file_inode(fp));
-	fput(fp);
-	changed = (sec != f->last_mtime_sec || nsec != f->last_mtime_nsec ||
-		   size != f->last_size);
-	return changed;
+	return (mtime.tv_sec != f->last_mtime_sec ||
+		mtime.tv_nsec != f->last_mtime_nsec ||
+		size != f->last_size);
 }
 
 static void susfs_uid_filter_save_caller_cred(struct susfs_uid_filter *f)
@@ -615,6 +619,8 @@ static void susfs_uid_filter_init_one(struct susfs_uid_filter *f,
 
 int susfs_uid_filter_init(void)
 {
+	int rc;
+
 	susfs_uid_filter_init_one(&sus_path_filter, "sus_path");
 	susfs_uid_filter_init_one(&priority_filter, "priority");
 	INIT_DELAYED_WORK(&susfs_uid_filter_recheck_work,
@@ -622,6 +628,12 @@ int susfs_uid_filter_init(void)
 	susfs_uid_filter_inited = true;
 	schedule_delayed_work(&susfs_uid_filter_recheck_work,
 			      msecs_to_jiffies(SUSFS_UID_FILTER_RECHECK_MS));
+	/* Non-fatal: if the table entries cannot be patched the setters still
+	 * work and the module still loads - the priority filter just stays
+	 * inert until the hook is there. */
+	rc = susfs_priority_hook_init();
+	if (rc)
+		pr_warn("susfs uid filter: priority hook not armed (%d)\n", rc);
 	return 0;
 }
 
@@ -659,6 +671,9 @@ void susfs_uid_filter_exit(void)
 {
 	susfs_uid_filter_inited = false;
 	cancel_delayed_work_sync(&susfs_uid_filter_recheck_work);
+	/* Remove the hook first and drain in-flight wrappers before the
+	 * bitmaps they read can go away. */
+	susfs_priority_hook_exit();
 	susfs_uid_filter_exit_one(&sus_path_filter);
 	susfs_uid_filter_exit_one(&priority_filter);
 }
