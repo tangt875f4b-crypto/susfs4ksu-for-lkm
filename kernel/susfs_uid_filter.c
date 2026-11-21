@@ -252,16 +252,32 @@ static int susfs_parse_app_names(char *app_str, unsigned long *bits,
 	return 0;
 }
 
+/*
+ * 6.12 removed direct access to inode->i_mtime (timestamps are now kept as
+ * separate sec/nsec fields); the inode_get_mtime() accessor exists from 6.11.
+ * Older kernels still use the struct field directly.
+ */
+static struct timespec64 susfs_uid_filter_get_mtime(struct inode *inode)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+	return inode_get_mtime(inode);
+#else
+	return inode->i_mtime;
+#endif
+}
+
 /* Snapshot packages.list's mtime/size, for the delayed re-check. */
 static void susfs_uid_filter_note_mtime(struct susfs_uid_filter *f)
 {
 	struct file *fp = filp_open(SUSFS_PACKAGES_LIST_PATH,
 				     O_RDONLY | O_NOATIME, 0);
+	struct timespec64 mtime;
 
 	if (IS_ERR(fp))
 		return;
-	f->last_mtime_sec = file_inode(fp)->i_mtime.tv_sec;
-	f->last_mtime_nsec = file_inode(fp)->i_mtime.tv_nsec;
+	mtime = susfs_uid_filter_get_mtime(file_inode(fp));
+	f->last_mtime_sec = mtime.tv_sec;
+	f->last_mtime_nsec = mtime.tv_nsec;
 	f->last_size = i_size_read(file_inode(fp));
 	f->have_mtime = true;
 	fput(fp);
@@ -270,6 +286,7 @@ static void susfs_uid_filter_note_mtime(struct susfs_uid_filter *f)
 static bool susfs_uid_filter_mtime_changed(struct susfs_uid_filter *f)
 {
 	struct file *fp;
+	struct timespec64 mtime;
 	time64_t sec;
 	long nsec;
 	loff_t size;
@@ -280,8 +297,9 @@ static bool susfs_uid_filter_mtime_changed(struct susfs_uid_filter *f)
 	fp = filp_open(SUSFS_PACKAGES_LIST_PATH, O_RDONLY | O_NOATIME, 0);
 	if (IS_ERR(fp))
 		return false;
-	sec = file_inode(fp)->i_mtime.tv_sec;
-	nsec = file_inode(fp)->i_mtime.tv_nsec;
+	mtime = susfs_uid_filter_get_mtime(file_inode(fp));
+	sec = mtime.tv_sec;
+	nsec = mtime.tv_nsec;
 	size = i_size_read(file_inode(fp));
 	fput(fp);
 	changed = (sec != f->last_mtime_sec || nsec != f->last_mtime_nsec ||
