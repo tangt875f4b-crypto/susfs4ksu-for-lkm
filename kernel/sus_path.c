@@ -478,7 +478,7 @@ int sus_path_rule_facts_dirent(u64 ino, const char *name,
 
 static bool sus_path_is_hidden(u64 ino, const char *name)
 {
-    struct sus_path_rule_facts f;
+    struct sus_path_rule_facts f = {0};
     struct sus_path_view v;
     bool hidden = false;
 
@@ -495,6 +495,11 @@ static bool sus_path_is_hidden(u64 ino, const char *name)
             hidden = sus_path_decide_core(&v) == SUS_PATH_HIDE;
         }
     }
+
+    /* susfs 2.4 sus_path UID filter (dirent face): see the inode face above. */
+    if (hidden && f.user_rule && !f.self_protect &&
+        susfs_is_uid_allowed_for_sus_path(current_uid().val))
+        hidden = false;
 
     if (!hidden && hide_name[0])
         hidden = !strcmp(name, hide_name);
@@ -1246,6 +1251,13 @@ static bool sus_path_inode_hidden(struct inode *inode)
         return false;
     if (f.by_identity)
         atomic_inc(&n_identity_hits);
+
+    /* susfs 2.4 sus_path UID filter: a listed app is allowed to see the
+     * hidden path, so it is not hidden from that caller.  Self-protect
+     * rules (the module's own /proc nodes) are never lifted by it. */
+    if (f.user_rule && !f.self_protect &&
+        susfs_is_uid_allowed_for_sus_path(current_uid().val))
+        return false;
 
     sus_path_view_fill(&v, SUS_PATH_FACE_INODE, (u64)inode->i_ino,
                        (u64)inode->i_sb->s_dev, inode->i_uid.val,

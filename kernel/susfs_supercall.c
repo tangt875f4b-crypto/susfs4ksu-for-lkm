@@ -103,6 +103,7 @@ static const struct feature_entry enabled_features[] = {
 	{ "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n",	SUSFS_FEAT_SPOOF_CMDLINE },
 	{ "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n",	SUSFS_FEAT_OPEN_REDIRECT },
 	{ "CONFIG_KSU_SUSFS_SUS_MAP\n",		SUSFS_FEAT_SUS_MAP },
+	{ "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n",	SUSFS_FEAT_PRIORITY_UID_FILTER },
 	/* hide_modules is not upstream's, so it is not listed here - the feature itself is unchanged. */
 };
 
@@ -169,6 +170,12 @@ static void susfs_tw_func(struct callback_head *cb)
 		/* The two commands answer a missing path differently upstream. */
 		sus_path_supercall(tw->cmd, &arg);
 		break;
+	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
+		susfs_set_sus_path_uid_filter_supercall(&arg);
+		break;
+	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
+		susfs_set_priority_uid_filter_supercall(&arg);
+		break;
 	case CMD_SUSFS_ADD_SUS_MAP:
 		susfs_sus_map_supercall(&arg);
 		break;
@@ -230,6 +237,10 @@ static int susfs_cmd_feature(unsigned int cmd)
 	case CMD_SUSFS_ADD_SUS_PATH:
 	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
 		return SUSFS_FEAT_SUS_PATH;
+	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
+		return SUSFS_FEAT_SUS_PATH;
+	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
+		return SUSFS_FEAT_PRIORITY_UID_FILTER;
 	case CMD_SUSFS_ADD_SUS_MAP:
 		return SUSFS_FEAT_SUS_MAP;
 	case CMD_SUSFS_ADD_SUS_KSTAT:
@@ -460,6 +471,15 @@ static void __init susfs_abi_layout_check(void)
 
 	BUILD_BUG_ON(sizeof(struct st_susfs_enabled_features) != 8196);
 	BUILD_BUG_ON(offsetof(struct st_susfs_enabled_features, err) != 8192);
+
+	/* susfs 2.4 UID-filter payloads: char[65535] + int err, with the int
+	 * padded to a 4-byte boundary - err at 65536, sizeof 65540, the same
+	 * layout upstream's kernel and ksu_susfs tool use. */
+	BUILD_BUG_ON(sizeof(struct st_susfs_sus_path_uid_filter) != 65540);
+	BUILD_BUG_ON(offsetof(struct st_susfs_sus_path_uid_filter, err) != 65536);
+
+	BUILD_BUG_ON(sizeof(struct st_susfs_priority_uid_filter) != 65540);
+	BUILD_BUG_ON(offsetof(struct st_susfs_priority_uid_filter, err) != 65536);
 }
 
 int susfs_supercall_init(void)

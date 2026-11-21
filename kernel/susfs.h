@@ -91,7 +91,7 @@ int sus_path_dirent_stat_line(char *buf, size_t size);
 
 /* The build's version string.  It lives here rather than in susfs_main.c because imports_guard.c
  * reports it when it refuses a load - and that happens before susfs_main.c prints its banner. */
-#define SUSFS_LKM_VERSION "2.3.0-gki"
+#define SUSFS_LKM_VERSION "2.4.0-gki"
 
 /* hide_modules (susfs_hide_syms.c): filters module NAMES out of /proc/modules (plus /sys/module and /proc/kallsyms for
  * non-root callers).  Node and same-named parameter are root-only; the node answers ENOENT through sus_path's hidden set. */
@@ -143,6 +143,33 @@ bool susfs_log_enabled(void);
 int susfs_avc_spoof_init(void);
 void susfs_avc_spoof_exit(void);
 
+/* susfs 2.4 UID filters (susfs_uid_filter.c): the two new supercall commands
+ * (0x55554 sus_path, 0x60030 priority).  The setters run in the supercall's
+ * task_work context, i.e. with the caller's (ksud's) credentials, so they read
+ * /data/system/packages.list directly - there is no KernelSU cred-domain switch
+ * in an LKM (upstream's susfs_switch_to_ksu_domain() needs ksu_cred /
+ * setup_selinux() from the built-in KernelSU image).  The re-resolve workers
+ * instead run under the credentials the setter saved from ksud, the same
+ * pattern sus_path.c uses for its pending-rule resolver. */
+int susfs_uid_filter_init(void);
+void susfs_uid_filter_exit(void);
+void susfs_set_sus_path_uid_filter_supercall(void __user **arg);
+void susfs_set_priority_uid_filter_supercall(void __user **arg);
+/* Upstream fs/susfs.c, mirrored exactly (including its comment/code polarity
+ * note: the bitmap lists the UIDs that are ALLOWED to see a hidden sus_path -
+ * hiding applies when !allowed - even though upstream's bitmap comment says
+ * "denied"; and a UID >= 90000 is always allowed).  Returns true when the UID
+ * may see hidden sus_paths. */
+bool susfs_is_uid_allowed_for_sus_path(uid_t uid);
+/* Upstream fs/susfs.c: true when the (mod-100000) UID is in the priority
+ * bitmap, i.e. hidden from getpriority/setpriority probes.  NOTE: the
+ * getpriority hook that consumes this predicate is not in this LKM yet, so
+ * today this only answers the setter / feature advertisement; see
+ * susfs_uid_filter.c. */
+bool susfs_is_priority_uid_filtered(uid_t uid);
+void susfs_parse_sus_path_app_strings(void);
+void susfs_parse_priority_app_strings(void);
+
 int susfs_supercall_init(void);
 void susfs_supercall_exit(void);
 /* True when the sys_call_table hook could not arm and the supercall is delivered
@@ -165,6 +192,7 @@ enum susfs_feature {
 	SUSFS_FEAT_OPEN_REDIRECT,
 	SUSFS_FEAT_SUS_MAP,
 	SUSFS_FEAT_AVC_SPOOF,	/* commands only: no upstream CONFIG_* line for it */
+	SUSFS_FEAT_PRIORITY_UID_FILTER,	/* susfs 2.4: CMD_SUSFS_SET_PRIORITY_UID_FILTER */
 	SUSFS_FEAT_COUNT,
 };
 

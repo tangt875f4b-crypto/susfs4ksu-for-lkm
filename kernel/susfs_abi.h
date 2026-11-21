@@ -22,6 +22,7 @@
 #define CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH    0x55551 /* deprecated */
 #define CMD_SUSFS_SET_SDCARD_ROOT_PATH          0x55552 /* deprecated */
 #define CMD_SUSFS_ADD_SUS_PATH_LOOP             0x55553
+#define CMD_SUSFS_SET_SUS_PATH_UID_FILTER       0x55554
 #define CMD_SUSFS_ADD_SUS_MOUNT                 0x55560 /* deprecated */
 #define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561
 #define CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE 0x55562 /* deprecated */
@@ -41,6 +42,7 @@
 #define CMD_SUSFS_SUS_SU                        0x60000 /* deprecated */
 #define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING       0x60010
 #define CMD_SUSFS_ADD_SUS_MAP                   0x60020
+#define CMD_SUSFS_SET_PRIORITY_UID_FILTER       0x60030
 
 /* 126 is a USERSPACE-side sentinel the kernel never produces: the ksu_susfs C tool pre-seeds payload.err with it and
  * prints "SUSFS operation not supported, please enable it in kernel" when the field is STILL 126 after the syscall,
@@ -59,7 +61,17 @@
 #define SUSFS_MAX_VERSION_BUFSIZE               16
 #define SUSFS_MAX_VARIANT_BUFSIZE               16
 
-#define SUSFS_VERSION_STR "v2.3.0"
+/* susfs 2.4 UID filters (upstream susfs_def.h): app package names are passed as one
+ * comma-separated string of up to 65535 bytes; the kernel resolves each name to a UID
+ * from /data/system/packages.list and keeps the UIDs in an RCU bitmap over the app UID
+ * range 10000-19999 (10000 UIDs -> 157 unsigned longs). */
+#define SUSFS_APP_STR_BUF_SIZE                  65535
+#define SUSFS_UID_FILTER_MIN_UID                10000
+#define SUSFS_UID_FILTER_MAX_UID                19999
+#define SUSFS_UID_FILTER_UID_NUM                (SUSFS_UID_FILTER_MAX_UID - SUSFS_UID_FILTER_MIN_UID + 1)
+#define SUSFS_UID_FILTER_BITMAP_LEN             157
+
+#define SUSFS_VERSION_STR "v2.4.0"
 #define SUSFS_VARIANT_STR "GKI-LKM"
 
 /* uid_scheme values of struct st_susfs_open_redirect (upstream enum UID_SCHEME, declared in
@@ -81,6 +93,20 @@ struct st_susfs_sus_path {
 
 struct st_susfs_sus_map {
 	char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+	int err;
+};
+
+/* susfs 2.4: both UID-filter payloads share this layout: a 65535-byte app-name
+ * string followed by err.  C pads the int to a 4-byte boundary, so err sits at
+ * offset 65536 and sizeof is 65540 - the same layout upstream's kernel and
+ * its ksu_susfs C tool both use (char[65535]; int err; with no packing). */
+struct st_susfs_sus_path_uid_filter {
+	char app_strings[SUSFS_APP_STR_BUF_SIZE];
+	int err;
+};
+
+struct st_susfs_priority_uid_filter {
+	char app_strings[SUSFS_APP_STR_BUF_SIZE];
 	int err;
 };
 

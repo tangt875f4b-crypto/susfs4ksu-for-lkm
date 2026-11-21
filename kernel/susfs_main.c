@@ -250,6 +250,7 @@ enum susfs_layer_id {
     SUSFS_L_KSU_ALLOW_GATE,
     SUSFS_L_LSM_HOOK,
     SUSFS_L_SUS_PATH,
+    SUSFS_L_UID_FILTER,
     SUSFS_L_CREATE_GATE,
     SUSFS_L_OPATH,
     SUSFS_L_DIRENT,
@@ -293,6 +294,12 @@ static struct susfs_layer {
      * reports; the refusal lives here, where a failure can fail the load. */
     { "lsm_hook",	layer_lsm_hook_init,		ksu_lsm_hook_exit,	false, -1 },
     { "sus_path",	sus_path_init,			sus_path_exit,		false, SUSFS_FEAT_SUS_PATH },
+    /* susfs 2.4 UID filters, right after sus_path (whose hiding decision
+     * consults the sus_path filter).  NOT fatal: if it cannot init, the two
+     * new commands stay unhandled and FinaSU keeps seeing 126 for them,
+     * while every pre-2.4 feature works as before.  Its feature arms
+     * CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER in SHOW_ENABLED_FEATURES. */
+    { "uid_filter",	susfs_uid_filter_init,		susfs_uid_filter_exit,	false, SUSFS_FEAT_PRIORITY_UID_FILTER },
     /* After sus_path, whose rule table and per-caller gate it asks.  NOT fatal: when it
      * cannot arm, the create family keeps answering the kernel's own way (EEXIST for a
      * hidden name) - the read paths are unaffected. */
@@ -326,8 +333,8 @@ static struct susfs_layer {
  * Index map (keep this list and the fail_layer= references in tools/verify-gki.sh and the layer
  * comments in sync whenever a layer is inserted):
  *   1 fp_hook   2 ksu_umount_gate  3 ksu_allow_gate  4 lsm_hook   5 sus_path
- *   6 create_gate  7 opath  8 dirent  9 uname  10 kstat  11 sus_map  12 sus_mount
- *   13 cmdline  14 open_redirect  15 enable_log  16 avc_spoof  17 supercall  18 hide_syms
+ *   6 uid_filter  7 create_gate  8 opath  9 dirent  10 uname  11 kstat  12 sus_map  13 sus_mount
+ *   14 cmdline  15 open_redirect  16 enable_log  17 avc_spoof  18 supercall  19 hide_syms
  */
 static int fail_layer;
 module_param_named(fail_layer, fail_layer, int, 0644);
@@ -360,6 +367,7 @@ static const struct {
     { SUSFS_L_KSU_ALLOW_GATE, false },
     { SUSFS_L_LSM_HOOK, true },
     { SUSFS_L_SUS_PATH, true },
+    { SUSFS_L_UID_FILTER, false },
     { SUSFS_L_CREATE_GATE, false },
     { SUSFS_L_OPATH, false },
     { SUSFS_L_DIRENT, false },
@@ -531,4 +539,4 @@ MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
 #else
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
-MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.3.0-gki");
+MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.4.0-gki");
