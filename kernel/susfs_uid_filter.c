@@ -38,6 +38,7 @@
  *     of silently succeeding with an empty bitmap.
  */
 #include <linux/module.h>
+#include <linux/version.h>	/* LINUX_VERSION_CODE / KERNEL_VERSION */
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
