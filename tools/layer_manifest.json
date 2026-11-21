@@ -352,7 +352,22 @@
       "phase": 0,
       "budget": 999
     },
+    "kernel/susfs_priority_hook.c": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
+    "kernel/susfs_priority_hook.h": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
     "kernel/susfs_supercall.c": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
+    "kernel/susfs_uid_filter.c": {
       "layer": "legacy",
       "phase": 0,
       "budget": 999
